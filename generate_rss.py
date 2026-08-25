@@ -1,4 +1,4 @@
-Enterimport re
+hereimport re
 import html
 import hashlib
 from datetime import datetime, timezone
@@ -32,11 +32,11 @@ def main():
         headers=HEADERS,
         timeout=30
     )
+
     response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # #official هو جزء من نفس الصفحة، وليس صفحة مستقلة.
     official = soup.find(id="official")
 
     if official is None:
@@ -45,16 +45,13 @@ def main():
 
     items = []
 
-    # نبحث عن الروابط داخل قسم official
     for link_tag in official.find_all("a", href=True):
         link = urljoin(SOURCE_URL, link_tag["href"])
-
         title = clean_text(link_tag.get_text(" ", strip=True))
 
         if not title:
             continue
 
-        # تجاهل روابط التنقل العامة
         if link.startswith("#"):
             continue
 
@@ -66,7 +63,6 @@ def main():
             "link": link,
         })
 
-    # إزالة التكرار
     unique = {}
 
     for item in items:
@@ -96,9 +92,13 @@ def main():
     <channel>
         <title>ذا سويم - التعريبات الرسمية</title>
         <link>{SOURCE_URL}</link>
-        <description>التعريبات الموجودة في قسم Official في موقع ذا سويم</description>
+        <description>
+            التعريبات الموجودة في قسم Official في موقع ذا سويم
+        </description>
         <language>ar</language>
-        <lastBuildDate>{now.strftime("%a, %d %b %Y %H:%M:%S GMT")}</lastBuildDate>
+        <lastBuildDate>
+            {now.strftime("%a, %d %b %Y %H:%M:%S GMT")}
+        </lastBuildDate>
 
         {"".join(rss_items)}
     </channel>
