@@ -1,4 +1,4 @@
-herename: Update Thesoim RSS
+ name: Update Thesoim RSS
 
 on:
   workflow_dispatch:
