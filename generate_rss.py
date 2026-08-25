@@ -8,7 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 
 
-SOURCE_URL = "https://thesoim.github.io/w/"
+BASE_URL = "https://thesoim.github.io/w/"
 OUTPUT_FILE = "feed.xml"
 
 HEADERS = {
@@ -16,99 +16,252 @@ HEADERS = {
 }
 
 
-def clean_text(value):
-    return re.sub(r"\s+", " ", value or "").strip()
+def clean_text(text):
+    return re.sub(r"\s+", " ", text or "").strip()
 
 
-def make_id(title, link):
-    return hashlib.sha256(
-        f"{title}|{link}".encode("utf-8")
-    ).hexdigest()
+def make_id(link):
+    return hashlib.sha256(link.encode("utf-8")).hexdigest()
 
 
-def main():
+def get_page(url):
     response = requests.get(
-        SOURCE_URL,
+        url,
         headers=HEADERS,
         timeout=30
     )
 
     response.raise_for_status()
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    return BeautifulSoup(response.text, "html.parser")
 
-    official = soup.find(id="official")
 
-    if official is None:
-        print("WARNING: #official was not found.")
-        return
+def extract_game_data(url):
+    soup = get_page(url)
 
-    items = []
+    title = ""
 
-    for link_tag in official.find_all("a", href=True):
-        link = urljoin(SOURCE_URL, link_tag["href"])
-        title = clean_text(link_tag.get_text(" ", strip=True))
+    h1 = soup.find("h1")
 
-        if not title:
-            continue
+    if h1:
+        title = clean_text(h1.get_text(" ", strip=True))
 
-        if link.startswith("#"):
-            continue
+    if not title:
+        return None
 
-        item_id = make_id(title, link)
+    text = clean_text(soup.get_text(" ", strip=True))
 
-        items.append({
-            "id": item_id,
-            "title": title,
-            "link": link,
-        })
+    version = ""
 
-    unique = {}
+    version_match = re.search(
+        r"الإصدار\s+(v[0-9A-Za-z._-]+)",
+        text
+    )
 
-    for item in items:
-        unique[item["id"]] = item
+    if version_match:
+        version = version_match.group(1)
 
-    items = list(unique.values())
+    size = ""
+
+    size_match = re.search(
+        r"الحجم\s+([0-9.]+\s*(?:MB|GB))",
+        text,
+        re.IGNORECASE
+    )
+
+    if size_match:
+        size = size_match.group(1)
+
+    platform = ""
+
+    platform_match = re.search(
+        r"المنصة\s+(Android|iOS|Windows|PC)",
+        text,
+        re.IGNORECASE
+    )
+
+    if platform_match:
+        platform = platform_match.group(1)
+
+    category = ""
+
+    category_match = re.search(
+        r"التصنيف\s+(.+?)\s+وقت اللعب",
+        text
+    )
+
+    if category_match:
+        category = clean_text(category_match.group(1))
+
+    description = ""
+
+    story = soup.find(
+        lambda tag: tag.name in ["h2", "h3"]
+        and clean_text(tag.get_text()) == "القصة"
+    )
+
+    if story:
+        next_element = story.find_next()
+
+        if next_element:
+            description = clean_text(
+                next_element.get_text(" ", strip=True)
+            )
+
+    return {
+        "title": title,
+        "link": url,
+        "version": version,
+        "size": size,
+        "platform": platform,
+        "category": category,
+        "description": description
+    }
+
+
+def main():
+
+    print("Opening Thesoim...")
+
+    soup = get_page(BASE_URL)
+
+    game_links = set()
+
+    # البحث عن جميع صفحات الألعاب
+    for a in soup.find_all("a", href=True):
+
+        href = a["href"]
+
+        full_url = urljoin(BASE_URL, href)
+
+        if "/games/" in full_url and full_url.endswith(".html"):
+            game_links.add(full_url)
+
+    print(f"Found {len(game_links)} game links")
+
+    games = []
+
+    for url in sorted(game_links):
+
+        try:
+
+            print(f"Reading: {url}")
+
+            game = extract_game_data(url)
+
+            if game:
+                games.append(game)
+
+        except Exception as error:
+
+            print(
+                f"Failed to read {url}: {error}"
+            )
+
+    print(f"Successfully extracted: {len(games)} games")
 
     now = datetime.now(timezone.utc)
 
     rss_items = []
 
-    for item in items:
-        rss_items.append(f"""
+    for game in games:
+
+        description_parts = []
+
+        if game["version"]:
+            description_parts.append(
+                f"الإصدار: {game['version']}"
+            )
+
+        if game["size"]:
+            description_parts.append(
+                f"الحجم: {game['size']}"
+            )
+
+        if game["platform"]:
+            description_parts.append(
+                f"المنصة: {game['platform']}"
+            )
+
+        if game["category"]:
+            description_parts.append(
+                f"التصنيف: {game['category']}"
+            )
+
+        if game["description"]:
+            description_parts.append(
+                game["description"]
+            )
+
+        description = "<br>".join(
+            html.escape(x)
+            for x in description_parts
+        )
+
+        item_id = make_id(game["link"])
+
+        rss_items.append(
+            f"""
         <item>
-            <title>{html.escape(item["title"])}</title>
-            <link>{html.escape(item["link"])}</link>
-            <guid isPermaLink="false">{item["id"]}</guid>
+            <title>{html.escape(game["title"])}</title>
+
+            <link>{html.escape(game["link"])}</link>
+
+            <guid isPermaLink="false">
+                {item_id}
+            </guid>
+
             <description>
-                تعريب جديد من قسم التعريبات الرسمية في ذا سويم
+                <![CDATA[
+                {description}
+                ]]>
             </description>
-            <pubDate>{now.strftime("%a, %d %b %Y %H:%M:%S GMT")}</pubDate>
+
+            <pubDate>
+                {now.strftime("%a, %d %b %Y %H:%M:%S GMT")}
+            </pubDate>
         </item>
-        """)
+        """
+        )
 
     rss = f"""<?xml version="1.0" encoding="UTF-8"?>
+
 <rss version="2.0">
+
     <channel>
-        <title>ذا سويم - التعريبات الرسمية</title>
-        <link>{SOURCE_URL}</link>
+
+        <title>تعريبات ذا سويم</title>
+
+        <link>{BASE_URL}</link>
+
         <description>
-            التعريبات الموجودة في قسم Official في موقع ذا سويم
+            جميع تعريبات ألعاب Android من ذا سويم
         </description>
+
         <language>ar</language>
+
         <lastBuildDate>
             {now.strftime("%a, %d %b %Y %H:%M:%S GMT")}
         </lastBuildDate>
 
         {"".join(rss_items)}
+
     </channel>
+
 </rss>
 """
 
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as file:
+    with open(
+        OUTPUT_FILE,
+        "w",
+        encoding="utf-8"
+    ) as file:
+
         file.write(rss)
 
-    print(f"RSS generated successfully: {len(items)} items")
+    print(
+        f"RSS generated successfully: {len(games)} items"
+    )
 
 
 if __name__ == "__main__":
