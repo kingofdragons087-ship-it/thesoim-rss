@@ -1,7 +1,8 @@
 import hashlib
 import html
+import json
+import mimetypes
 from datetime import datetime, timezone
-from urllib.parse import urlparse
 
 import requests
 
@@ -26,7 +27,12 @@ def load_json(url):
 
     response.raise_for_status()
 
-    return response.json()
+    data = response.json()
+
+    if not isinstance(data, list):
+        raise ValueError(f"Expected list from {url}")
+
+    return data
 
 
 def make_id(game, section):
@@ -53,75 +59,98 @@ def escape_attr(value):
 
 def get_first_image(game):
     """
-    يأخذ أول صورة من images[].
+    اختيار أول صورة من images[].
 
     يدعم:
-    [
-        "https://example.com/image.png"
-    ]
+    images: ["image1.png", "image2.png"]
 
     وكذلك:
-    [
-        {
-            "url": "https://example.com/image.png"
-        }
-    ]
+    images: [{"url": "image1.png"}, ...]
+
+    وإذا لم توجد images[] يستخدم الحقول البديلة.
     """
 
-    images = game.get("images") or []
+    images = game.get("images")
 
-    if not isinstance(images, list):
-        return ""
+    # الحالة الطبيعية: images[]
+    if isinstance(images, list):
 
-    for image in images:
+        for image in images:
 
-        # images: ["url"]
-        if isinstance(image, str):
-            image = image.strip()
+            if isinstance(image, str) and image.strip():
+                return image.strip()
 
-            if image:
-                return image
+            if isinstance(image, dict):
 
-        # images: [{"url": "..."}]
-        if isinstance(image, dict):
+                for key in (
+                    "url",
+                    "src",
+                    "image",
+                    "path"
+                ):
+                    value = image.get(key)
 
-            image_url = (
-                image.get("url")
-                or image.get("src")
-                or image.get("image")
-                or image.get("imageUrl")
-            )
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
 
-            if image_url:
-                return str(image_url).strip()
+    # دعم لو images كانت نصًا بدل array
+    if isinstance(images, str) and images.strip():
+        return images.strip()
+
+    # حقول بديلة احتياطية
+    for key in (
+        "image",
+        "imageUrl",
+        "image_url",
+        "thumbnail",
+        "cover",
+        "coverImage",
+        "cover_image"
+    ):
+        value = game.get(key)
+
+        if isinstance(value, str) and value.strip():
+            return value.strip()
 
     return ""
 
 
+def normalize_image_url(image):
+    """
+    تحويل مسار الصورة إلى URL كامل.
+    """
+
+    if not image:
+        return ""
+
+    image = str(image).strip()
+
+    if image.startswith("http://") or image.startswith("https://"):
+        return image
+
+    if image.startswith("//"):
+        return "https:" + image
+
+    # رابط يبدأ بـ /
+    if image.startswith("/"):
+        return "https://thesoim.github.io" + image
+
+    # الصور الموجودة عادة في /w/image/
+    if image.startswith("image/"):
+        return BASE_URL + image
+
+    return BASE_URL + "image/" + image
+
+
 def get_image_type(image_url):
     """
-    يحدد MIME type للصورة من امتداد الرابط.
+    تحديد MIME type للصورة.
     """
 
-    if not image_url:
-        return "image/jpeg"
+    mime_type, _ = mimetypes.guess_type(image_url)
 
-    path = urlparse(image_url).path.lower()
-
-    if path.endswith(".png"):
-        return "image/png"
-
-    if path.endswith(".webp"):
-        return "image/webp"
-
-    if path.endswith(".gif"):
-        return "image/gif"
-
-    if path.endswith(".jpg"):
-        return "image/jpeg"
-
-    if path.endswith(".jpeg"):
-        return "image/jpeg"
+    if mime_type and mime_type.startswith("image/"):
+        return mime_type
 
     return "image/jpeg"
 
@@ -144,7 +173,6 @@ def get_pub_date(game):
         )
 
     except Exception:
-
         return datetime.now(
             timezone.utc
         ).strftime(
@@ -185,15 +213,13 @@ def game_to_item(game, section):
         "Android"
     )
 
-    categories = (
-        game.get("categories")
-        or []
-    )
+    categories = game.get(
+        "categories"
+    ) or []
 
-    tags = (
-        game.get("tags")
-        or []
-    )
+    tags = game.get(
+        "tags"
+    ) or []
 
     story = game.get(
         "story",
@@ -205,35 +231,34 @@ def game_to_item(game, section):
         ""
     )
 
-    image_url = get_first_image(game)
+    # ----------------------------------------
+    # الصورة الأولى
+    # ----------------------------------------
+
+    image = get_first_image(game)
+
+    image_url = normalize_image_url(image)
 
     image_type = get_image_type(
         image_url
     )
 
-    pub_date = get_pub_date(
-        game
-    )
-
-    item_id = make_id(
-        game,
-        section
-    )
+    # ----------------------------------------
+    # الوصف
+    # ----------------------------------------
 
     description = []
 
-    # الصورة أولاً
+    # الصورة أول شيء
+    #
+    # هذا مهم لـ MonitoRSS و Discord
+    # لأن بعض القارئات لا تعتمد على
+    # media:content وحده.
     if image_url:
 
         description.append(
-            f"""
-            <p>
-                <img
-                    src="{escape_attr(image_url)}"
-                    alt="{escape_attr(title)}"
-                />
-            </p>
-            """
+            f'<img src="{escape_attr(image_url)}" '
+            f'alt="{escape_attr(title)}" />'
         )
 
     if version:
@@ -261,14 +286,14 @@ def game_to_item(game, section):
 
         description.append(
             f"<b>التصنيف:</b> "
-            f"{escape(', '.join(categories))}"
+            f"{escape(', '.join(map(str, categories)))}"
         )
 
     if tags:
 
         description.append(
             f"<b>الوسوم:</b> "
-            f"{escape(', '.join(tags))}"
+            f"{escape(', '.join(map(str, tags)))}"
         )
 
     if story:
@@ -285,29 +310,37 @@ def game_to_item(game, section):
         )
 
     description.append(
-        f"""
-        <p>
-            <a href="{escape_attr(link)}">
-                صفحة التعريب
-            </a>
-        </p>
-        """
+        f'<a href="{escape_attr(link)}">'
+        f"صفحة التعريب"
+        f"</a>"
     )
 
     description_html = "<br>".join(
         description
     )
 
-    # عناصر الصور الخاصة بقارئات RSS و Discord
-    image_block = ""
+    item_id = make_id(
+        game,
+        section
+    )
+
+    pub_date = get_pub_date(
+        game
+    )
+
+    # ----------------------------------------
+    # صورة RSS
+    # ----------------------------------------
+
+    media_block = ""
 
     if image_url:
 
-        image_block = f"""
+        media_block = f"""
         <media:content
             url="{escape_attr(image_url)}"
             medium="image"
-            type="{image_type}"
+            type="{escape_attr(image_type)}"
         />
 
         <media:thumbnail
@@ -316,17 +349,27 @@ def game_to_item(game, section):
 
         <enclosure
             url="{escape_attr(image_url)}"
-            type="{image_type}"
-            length="1"
+            type="{escape_attr(image_type)}"
+            length="0"
         />
+
+        <image>
+            <url>{escape(image_url)}</url>
+            <title>{escape(title)}</title>
+            <link>{escape(link)}</link>
+        </image>
         """
+
+    # ----------------------------------------
+    # RSS item
+    # ----------------------------------------
 
     return f"""
     <item>
 
         <title>{escape(title)}</title>
 
-        <link>{escape_attr(link)}</link>
+        <link>{escape(link)}</link>
 
         <guid isPermaLink="false">
             {item_id}
@@ -336,15 +379,13 @@ def game_to_item(game, section):
             {description_html}
         ]]></description>
 
-        {image_block}
+        {media_block}
 
         <pubDate>{pub_date}</pubDate>
 
         <category>تعريب</category>
 
-        <category>
-            {escape(platform)}
-        </category>
+        <category>{escape(platform)}</category>
 
     </item>
     """
@@ -352,9 +393,7 @@ def game_to_item(game, section):
 
 def main():
 
-    print(
-        "Loading Thesoim data..."
-    )
+    print("Loading Thesoim data...")
 
     games = load_json(
         GAMES_URL
@@ -365,20 +404,21 @@ def main():
     )
 
     print(
-        f"games.json: "
-        f"{len(games)} items"
+        f"games.json: {len(games)} items"
     )
 
     print(
-        f"official.json: "
-        f"{len(official)} items"
+        f"official.json: {len(official)} items"
     )
 
     items = []
 
-    # ==========================
+    images_found = 0
+    images_missing = 0
+
+    # ----------------------------------------
     # تعريبات المجتمع
-    # ==========================
+    # ----------------------------------------
 
     for game in games:
 
@@ -388,6 +428,15 @@ def main():
         if not game.get("slug"):
             continue
 
+        image = normalize_image_url(
+            get_first_image(game)
+        )
+
+        if image:
+            images_found += 1
+        else:
+            images_missing += 1
+
         items.append(
             game_to_item(
                 game,
@@ -395,9 +444,9 @@ def main():
             )
         )
 
-    # ==========================
+    # ----------------------------------------
     # التعريبات الرسمية
-    # ==========================
+    # ----------------------------------------
 
     for game in official:
 
@@ -407,6 +456,15 @@ def main():
         if not game.get("slug"):
             continue
 
+        image = normalize_image_url(
+            get_first_image(game)
+        )
+
+        if image:
+            images_found += 1
+        else:
+            images_missing += 1
+
         items.append(
             game_to_item(
                 game,
@@ -414,26 +472,31 @@ def main():
             )
         )
 
+    # ----------------------------------------
+    # تاريخ بناء RSS
+    # ----------------------------------------
+
     now = datetime.now(
         timezone.utc
     ).strftime(
         "%a, %d %b %Y %H:%M:%S GMT"
     )
 
+    # ----------------------------------------
+    # RSS
+    # ----------------------------------------
+
     rss = f"""<?xml version="1.0" encoding="UTF-8"?>
 
-<rss
-    version="2.0"
-    xmlns:media="http://search.yahoo.com/mrss/"
->
+<rss version="2.0"
+     xmlns:media="http://search.yahoo.com/mrss/"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/">
 
     <channel>
 
         <title>تعريبات ذا سويم</title>
 
-        <link>
-            {BASE_URL}
-        </link>
+        <link>{BASE_URL}</link>
 
         <description>
             جميع تعريبات ألعاب الأندرويد من ذا سويم
@@ -441,9 +504,9 @@ def main():
 
         <language>ar</language>
 
-        <lastBuildDate>
-            {now}
-        </lastBuildDate>
+        <lastBuildDate>{now}</lastBuildDate>
+
+        <generator>Thesoim RSS Generator</generator>
 
         {"".join(items)}
 
@@ -458,11 +521,21 @@ def main():
         encoding="utf-8"
     ) as file:
 
-        file.write(rss)
+        file.write(
+            rss
+        )
 
     print(
         f"RSS generated successfully: "
         f"{len(items)} items"
+    )
+
+    print(
+        f"Images found: {images_found}"
+    )
+
+    print(
+        f"Images missing: {images_missing}"
     )
 
 
