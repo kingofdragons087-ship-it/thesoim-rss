@@ -1,6 +1,7 @@
 import hashlib
 import html
 import json
+import mimetypes
 from datetime import datetime, timezone
 
 import requests
@@ -44,27 +45,95 @@ def escape(value):
     )
 
 
-def get_image_url(game):
+def escape_attr(value):
+    return html.escape(
+        str(value or ""),
+        quote=True
+    )
+
+
+def get_first_image(game):
+    """
+    يأخذ أول صورة من images[].
+
+    أمثلة:
+    "omori1.png"
+    "image/omori1.png"
+    "https://example.com/image.png"
+    """
+
     images = game.get("images") or []
 
-    if not images:
+    if not isinstance(images, list) or not images:
         return ""
 
-    # نستخدم أول صورة للعبة
-    image = str(images[0]).strip()
+    first_image = str(images[0]).strip()
 
-    if not image:
+    if not first_image:
         return ""
 
     # إذا كانت الصورة رابطًا كاملًا
-    if image.startswith("http://") or image.startswith("https://"):
-        return image
+    if first_image.startswith("http://") or first_image.startswith("https://"):
+        return first_image
 
-    # الصور الموجودة داخل مجلد image/
-    return f"{BASE_URL}image/{image}"
+    # إزالة / من البداية حتى لا يصبح الرابط //image
+    first_image = first_image.lstrip("/")
+
+    # إذا البيانات تحتوي image/ بالفعل
+    if first_image.startswith("image/"):
+        return BASE_URL + first_image
+
+    # الصور الموجودة في مجلد image
+    return BASE_URL + "image/" + first_image
+
+
+def get_image_type(image_url):
+    """
+    تحديد MIME type حسب امتداد الصورة.
+    """
+
+    url = image_url.lower().split("?")[0]
+
+    if url.endswith(".png"):
+        return "image/png"
+
+    if url.endswith(".jpg") or url.endswith(".jpeg"):
+        return "image/jpeg"
+
+    if url.endswith(".webp"):
+        return "image/webp"
+
+    if url.endswith(".gif"):
+        return "image/gif"
+
+    if url.endswith(".avif"):
+        return "image/avif"
+
+    return "image/png"
+
+
+def get_pub_date(game):
+    created_at = game.get("createdAt")
+
+    if not created_at:
+        created_at = game.get("updatedAt")
+
+    try:
+        timestamp = int(created_at) / 1000
+
+        return datetime.fromtimestamp(
+            timestamp,
+            timezone.utc
+        ).strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    except Exception:
+        return datetime.now(
+            timezone.utc
+        ).strftime("%a, %d %b %Y %H:%M:%S GMT")
 
 
 def game_to_item(game, section):
+
     title = game.get("title", "تعريب جديد")
     slug = game.get("slug", "")
 
@@ -80,107 +149,124 @@ def game_to_item(game, section):
     story = game.get("story", "")
     keywords = game.get("keywords", "")
 
-    image_url = get_image_url(game)
+    pub_date = get_pub_date(game)
 
-    created_at = game.get("createdAt") or game.get("updatedAt") or 0
+    # ==========================================================
+    # الصورة الأولى من images[]
+    # ==========================================================
 
-    try:
-        timestamp = int(created_at) / 1000
-
-        pub_date = datetime.fromtimestamp(
-            timestamp,
-            timezone.utc
-        ).strftime("%a, %d %b %Y %H:%M:%S GMT")
-
-    except Exception:
-        pub_date = datetime.now(
-            timezone.utc
-        ).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    image_url = get_first_image(game)
+    image_type = get_image_type(image_url)
 
     description = []
 
-    # الصورة داخل الوصف أيضًا
-    # هذا يساعد بعض قارئات RSS وخصوصًا بوتات Discord
+    # ==========================================================
+    # الصورة داخل description
+    #
+    # هذا مهم لأن بعض قارئات RSS تبحث عن <img>
+    # داخل محتوى المقال نفسه.
+    # ==========================================================
+
     if image_url:
+
         description.append(
-            f'<img src="{html.escape(image_url, quote=True)}" '
-            f'alt="{html.escape(title, quote=True)}">'
+            f'<img src="{escape_attr(image_url)}" '
+            f'alt="{escape_attr(title)}" />'
         )
 
+    # ==========================================================
+    # معلومات اللعبة
+    # ==========================================================
+
     if version:
+
         description.append(
             f"<b>الإصدار:</b> {escape(version)}"
         )
 
     if size:
+
         description.append(
             f"<b>الحجم:</b> {escape(size)}"
         )
 
     if platform:
+
         description.append(
             f"<b>المنصة:</b> {escape(platform)}"
         )
 
     if categories:
+
         description.append(
-            f"<b>التصنيف:</b> {escape(', '.join(categories))}"
+            f"<b>التصنيف:</b> "
+            f"{escape(', '.join(map(str, categories)))}"
         )
 
     if tags:
+
         description.append(
-            f"<b>الوسوم:</b> {escape(', '.join(tags))}"
+            f"<b>الوسوم:</b> "
+            f"{escape(', '.join(map(str, tags)))}"
         )
 
     if story:
+
         description.append(
             escape(story)
         )
 
     if keywords:
+
         description.append(
-            f"<b>الكلمات المفتاحية:</b> {escape(keywords)}"
+            f"<b>الكلمات المفتاحية:</b> "
+            f"{escape(keywords)}"
         )
 
     description.append(
-        f'<a href="{html.escape(link, quote=True)}">'
-        f"صفحة التعريب</a>"
+        f'<a href="{escape_attr(link)}">صفحة التعريب</a>'
     )
 
     item_id = make_id(game, section)
 
-    # صورة RSS القياسية
-    media_xml = ""
+    # ==========================================================
+    # Media RSS
+    #
+    # MonitoRSS / قارئات RSS
+    # ==========================================================
+
+    media_html = ""
 
     if image_url:
-        safe_image = html.escape(
-            image_url,
-            quote=True
-        )
 
-        media_xml = f"""
+        media_html = f"""
         <media:content
-            url="{safe_image}"
+            url="{escape_attr(image_url)}"
             medium="image"
-            type="image/jpeg"
+            type="{image_type}"
         />
 
         <media:thumbnail
-            url="{safe_image}"
+            url="{escape_attr(image_url)}"
         />
 
         <enclosure
-            url="{safe_image}"
-            type="image/jpeg"
-            length="0"
+            url="{escape_attr(image_url)}"
+            type="{image_type}"
+            length="1"
         />
         """
 
+    # ==========================================================
+    # RSS ITEM
+    # ==========================================================
+
     return f"""
     <item>
+
         <title>{escape(title)}</title>
 
-        <link>{html.escape(link, quote=True)}</link>
+        <link>{escape_attr(link)}</link>
 
         <guid isPermaLink="false">{item_id}</guid>
 
@@ -188,13 +274,14 @@ def game_to_item(game, section):
             {"<br>".join(description)}
         ]]></description>
 
-        {media_xml}
+        {media_html}
 
         <pubDate>{pub_date}</pubDate>
 
         <category>تعريب</category>
 
         <category>{escape(platform)}</category>
+
     </item>
     """
 
@@ -217,9 +304,9 @@ def main():
 
     items = []
 
-    # =========================================================
-    # جميع تعريبات المجتمع
-    # =========================================================
+    # ==========================================================
+    # تعريبات المجتمع
+    # ==========================================================
 
     for game in games:
 
@@ -236,9 +323,9 @@ def main():
             )
         )
 
-    # =========================================================
-    # جميع التعريبات الرسمية
-    # =========================================================
+    # ==========================================================
+    # التعريبات الرسمية
+    # ==========================================================
 
     for game in official:
 
@@ -255,11 +342,19 @@ def main():
             )
         )
 
+    # ==========================================================
+    # ترتيب RSS حسب التاريخ
+    # ==========================================================
+
     now = datetime.now(
         timezone.utc
     ).strftime(
         "%a, %d %b %Y %H:%M:%S GMT"
     )
+
+    # ==========================================================
+    # RSS
+    # ==========================================================
 
     rss = f"""<?xml version="1.0" encoding="UTF-8"?>
 
@@ -286,6 +381,10 @@ def main():
 
 </rss>
 """
+
+    # ==========================================================
+    # حفظ الملف
+    # ==========================================================
 
     with open(
         OUTPUT_FILE,
