@@ -44,6 +44,26 @@ def escape(value):
     )
 
 
+def get_image_url(game):
+    images = game.get("images") or []
+
+    if not images:
+        return ""
+
+    # نستخدم أول صورة للعبة
+    image = str(images[0]).strip()
+
+    if not image:
+        return ""
+
+    # إذا كانت الصورة رابطًا كاملًا
+    if image.startswith("http://") or image.startswith("https://"):
+        return image
+
+    # الصور الموجودة داخل مجلد image/
+    return f"{BASE_URL}image/{image}"
+
+
 def game_to_item(game, section):
     title = game.get("title", "تعريب جديد")
     slug = game.get("slug", "")
@@ -59,6 +79,8 @@ def game_to_item(game, section):
 
     story = game.get("story", "")
     keywords = game.get("keywords", "")
+
+    image_url = get_image_url(game)
 
     created_at = game.get("createdAt") or game.get("updatedAt") or 0
 
@@ -76,6 +98,14 @@ def game_to_item(game, section):
         ).strftime("%a, %d %b %Y %H:%M:%S GMT")
 
     description = []
+
+    # الصورة داخل الوصف أيضًا
+    # هذا يساعد بعض قارئات RSS وخصوصًا بوتات Discord
+    if image_url:
+        description.append(
+            f'<img src="{html.escape(image_url, quote=True)}" '
+            f'alt="{html.escape(title, quote=True)}">'
+        )
 
     if version:
         description.append(
@@ -113,10 +143,38 @@ def game_to_item(game, section):
         )
 
     description.append(
-        f'<a href="{html.escape(link, quote=True)}">صفحة التعريب</a>'
+        f'<a href="{html.escape(link, quote=True)}">'
+        f"صفحة التعريب</a>"
     )
 
     item_id = make_id(game, section)
+
+    # صورة RSS القياسية
+    media_xml = ""
+
+    if image_url:
+        safe_image = html.escape(
+            image_url,
+            quote=True
+        )
+
+        media_xml = f"""
+        <media:content
+            url="{safe_image}"
+            medium="image"
+            type="image/jpeg"
+        />
+
+        <media:thumbnail
+            url="{safe_image}"
+        />
+
+        <enclosure
+            url="{safe_image}"
+            type="image/jpeg"
+            length="0"
+        />
+        """
 
     return f"""
     <item>
@@ -129,6 +187,8 @@ def game_to_item(game, section):
         <description><![CDATA[
             {"<br>".join(description)}
         ]]></description>
+
+        {media_xml}
 
         <pubDate>{pub_date}</pubDate>
 
@@ -157,7 +217,10 @@ def main():
 
     items = []
 
+    # =========================================================
     # جميع تعريبات المجتمع
+    # =========================================================
+
     for game in games:
 
         if game.get("isHidden"):
@@ -173,7 +236,10 @@ def main():
             )
         )
 
+    # =========================================================
     # جميع التعريبات الرسمية
+    # =========================================================
+
     for game in official:
 
         if game.get("isHidden"):
@@ -197,7 +263,8 @@ def main():
 
     rss = f"""<?xml version="1.0" encoding="UTF-8"?>
 
-<rss version="2.0">
+<rss version="2.0"
+     xmlns:media="http://search.yahoo.com/mrss/">
 
     <channel>
 
