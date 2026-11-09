@@ -16,11 +16,57 @@
 
         <language>ar</language>
 
-        <lastBuildDate>Sun, 08 Nov 2026 20:58:59 GMT</lastBuildDate>
+        <lastBuildDate>Mon, 09 Nov 2026 00:43:47 GMT</lastBuildDate>
 
         <generator>Thesoim RSS Generator</generator>
 
         
+    <item>
+
+        <title>Cursed Gem</title>
+
+        <link>https://thesoim.github.io/w/games/cursed-gem.html</link>
+
+        <guid isPermaLink="false">
+            7e344fdfc70a7a2aaca187170c59cdd1338e7a6162a04eebc6840a5b145752d9
+        </guid>
+
+        <description><![CDATA[
+            <img src="https://thesoim.github.io/w/image/cursed-gem1.jpg" alt="Cursed Gem" /><br><b>الإصدار:</b> 1.0.0<br><b>الحجم:</b> 68.41M<br><b>المنصة:</b> Android<br><b>التصنيف:</b> ألغاز, منصات<br><b>الوسوم:</b> ألغاز, منصات<br>تدور أحداث اللعبة حول Oliver الذي يدخل منجماً قديماً بحثاً عن الألماس ليشتري خاتم زواج لحبيبته Silvia لكنه يجد نفسه محاصراً داخل كهف ملعون عليك استكشاف الكهوف وحل الألغاز وتجاوز الفخاخ وجمع الكنوز بمساعدة صديقه Jerry لكشف سر اللعنة والهروب منها<br><b>الكلمات المفتاحية:</b> تعريب Cursed Gem, Cursed Gem معربة, تحميل Cursed Gem, Cursed Gem Arabic, Cursed Gem للاندرويد, Cursed Gem بالعربي<br><a href="https://thesoim.github.io/w/games/cursed-gem.html">صفحة التعريب</a>
+        ]]></description>
+
+        
+        <media:content
+            url="https://thesoim.github.io/w/image/cursed-gem1.jpg"
+            medium="image"
+            type="image/jpeg"
+        />
+
+        <media:thumbnail
+            url="https://thesoim.github.io/w/image/cursed-gem1.jpg"
+        />
+
+        <enclosure
+            url="https://thesoim.github.io/w/image/cursed-gem1.jpg"
+            type="image/jpeg"
+            length="0"
+        />
+
+        <image>
+            <url>https://thesoim.github.io/w/image/cursed-gem1.jpg</url>
+            <title>Cursed Gem</title>
+            <link>https://thesoim.github.io/w/games/cursed-gem.html</link>
+        </image>
+        
+
+        <pubDate>Sun, 08 Nov 2026 23:51:45 GMT</pubDate>
+
+        <category>تعريب</category>
+
+        <category>Android</category>
+
+    </item>
+    
     <item>
 
         <title>100 Lil Jumps</title>
